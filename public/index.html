@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Turn-Based Chess-Like Game</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #f0f0f0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      margin: 0;
+    }
+
+    .game-container {
+      text-align: center;
+      padding: 20px;
+      background-color: #ffffff;
+      border: 1px solid #ccc;
+      border-radius: 10px;
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+    }
+
+    .player-turn {
+      margin: 20px;
+      font-size: 1.5em;
+      font-weight: bold;
+      color: #333;
+    }
+
+    .board {
+      display: grid;
+      grid-template-columns: repeat(5, 100px);
+      grid-template-rows: repeat(5, 100px);
+      gap: 5px;
+      margin-bottom: 20px;
+    }
+
+    .cell {
+      width: 100px;
+      height: 100px;
+      border: 1px solid #ddd;
+      background-color: #e0e0e0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.5em;
+      font-weight: bold;
+      cursor: pointer;
+      transition: background-color 0.3s, transform 0.3s;
+    }
+
+    .cell:hover {
+      background-color: #c0c0c0;
+      transform: scale(1.05);
+    }
+
+    .highlight {
+      background-color: yellow;
+    }
+
+    button {
+      padding: 10px 20px;
+      font-size: 1em;
+      font-weight: bold;
+      color: #fff;
+      background-color: #007bff;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      transition: background-color 0.3s;
+    }
+
+    button:hover {
+      background-color: #0056b3;
+    }
+
+    @media (max-width: 600px) {
+      .board {
+        grid-template-columns: repeat(5, 60px);
+        grid-template-rows: repeat(5, 60px);
+      }
+
+      .cell {
+        width: 60px;
+        height: 60px;
+        font-size: 1em;
+      }
+
+      button {
+        padding: 8px 16px;
+        font-size: 0.9em;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="game-container">
+    <div class="player-turn">Current Turn: <span id="current-turn">A</span></div>
+    <div class="board" id="board">
+      </div>
+    <button onclick="initializeGame()">Start New Game</button>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const socket = io();
+    let selectedCharacter = null;
+    let currentPlayer = 'A';
+
+    // Connect to the server
+    socket.on('connect', () => {
+      console.log('Connected to server');
+    });
+
+    // Receive and render game state
+    socket.on('game_state', (gameState) => {
+      renderGameState(gameState);
+    });
+
+    // Handle game over notification
+    socket.on('game_over', (data) => {
+      alert(`Game Over! Player ${data.winner} wins!`);
+      initializeGame(); // Optionally restart the game
+    });
+
+    // Render the game state on the board
+    function renderGameState(gameState) {
+      const boardElement = document.getElementById('board');
+      boardElement.innerHTML = ''; // Clear the board
+
+      for (let row = 0; row < 5; row++) {
+        for (let col = 0; col < 5; col++) {
+          const cell = document.createElement('div');
+          cell.classList.add('cell');
+          const charName = gameState.board[row][col];
+          cell.textContent = charName || '';
+          cell.onclick = () => handleCellClick(row, col, charName);
+          boardElement.appendChild(cell);
+        }
+      }
+
+      currentPlayer = gameState.players.A.active ? 'A' : 'B';
+      document.getElementById('current-turn').textContent = currentPlayer;
+    }
+
+    // Handle click on a cell
+    function handleCellClick(row, col, charName) {
+      if (charName && charName.startsWith(currentPlayer)) {
+        // Select a character to move
+        selectedCharacter = { charName, row, col };
+        highlightMoves(row, col, charName);
+      } else if (selectedCharacter) {
+        // Calculate and emit the move
+        const move = calculateMove(selectedCharacter, { row, col });
+        if (move) {
+          socket.emit('move_character', {
+            player: currentPlayer,
+            char_name: selectedCharacter.charName,
+            move
+          });
+          selectedCharacter = null;
+          clearHighlights();
+        }
+      }
+    }
+
+    // Calculate the move direction
+    function calculateMove(selected, target) {
+      const rowDiff = target.row - selected.row;
+      const colDiff = target.col - selected.col;
+      if (rowDiff === 0 && colDiff === -1) return 'L';
+      if (rowDiff === 0 && colDiff === 1) return 'R';
+      if (rowDiff === -1 && colDiff === 0) return 'F';
+      if (rowDiff === 1 && colDiff === 0) return 'B';
+      if (rowDiff === -1 && colDiff === -1) return 'FL';
+      if (rowDiff === -1 && colDiff === 1) return 'FR';
+      if (rowDiff === 1 && colDiff === -1) return 'BL';
+      if (rowDiff === 1 && colDiff === 1) return 'BR';
+      return null; // Invalid move
+    }
+
+    // Initialize the game
+    function initializeGame() {
+      socket.emit('initialize_game');
+    }
+
+    // Highlight valid moves for the selected character
+    function highlightMoves(row, col, charName) {
+      const validMoves = ['L', 'R', 'F', 'B', 'FL', 'FR', 'BL', 'BR'];
+      validMoves.forEach(move => {
+        let targetRow = row;
+        let targetCol = col;
+        if (move.includes('F')) targetRow -= 1;
+        if (move.includes('B')) targetRow += 1;
+        if (move.includes('L')) targetCol -= 1;
+        if (move.includes('R')) targetCol += 1;
+
+        if (targetRow >= 0 && targetRow <= 4 && targetCol >= 0 && targetCol <= 4) {
+          document.querySelector(`.board div:nth-child(${targetRow * 5 + targetCol + 1})`).classList.add('highlight');
+        }
+      });
+    }
+
+    // Clear highlights from the board
+    function clearHighlights() {
+      document.querySelectorAll('.highlight').forEach(cell => cell.classList.remove('highlight'));
+    }
+  </script>
+</body>
+</html>
